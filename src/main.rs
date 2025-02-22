@@ -2,11 +2,12 @@
 #![no_main]
 
 use kartoffel::*;
-use threat_map::{coordinates::Coordinate, direction::Direction, greedy_next_move::greedy_next_move, orientation::Orientation, robot_position::RobotPosition, threat_map::ThreatMap};
+use threat_map::{coordinates::Coordinate, direction::Direction, enemy_position::{EnemyPosition, EnemyPositions}, greedy_next_move::greedy_next_move, orientation::Orientation, robot_position::RobotPosition, threat_map::ThreatMap};
 
 struct Robot {
     threat_map: ThreatMap,
-    enemy_positions: [Coordinate; threat_map::N * threat_map::N],
+    enemy_positions: EnemyPositions,
+    previous_enemy_positions: EnemyPositions,
     robot_position: RobotPosition,
 }
 
@@ -36,24 +37,27 @@ fn print_map<const N:usize>(map: &ThreatMap) {
 
 impl Robot {
     fn radar_is_ready(&mut self) {
-        self.robot_position.position = Coordinate::new(0, 0);
         let scan = radar_scan_9x9();
         // println!("{:?}", self.robot_position.orientation);
         // print_scan(&scan);
 
-        let enemy_count = self.calculate_enemy_positions(&scan);
-        // println!("{enemy_count} enemies detected");
-        self.enemy_positions[0..enemy_count].iter_mut().for_each(|position| *position = position.orientate_north(self.robot_position.orientation));
-        self.threat_map.calculate(&self.enemy_positions[0..enemy_count]);
+        self.previous_enemy_positions = self.enemy_positions.clone();
+        self.previous_enemy_positions.use_origin(self.robot_position.position);
 
-        for y in -4..=4 {
-            for x in -4..=4 {
+        self.calculate_enemy_positions(&scan);
+        
+        self.threat_map.calculate_with_previous_location(&self.enemy_positions, &self.previous_enemy_positions);
+
+        let n = threat_map::N as i8;
+        for y in -n/2..=n/2 {
+            for x in -n/2..=n/2 {
                 if scan.at(x, y) == ' ' {
                     self.threat_map.mask_border(Coordinate::new(x, y).orientate_north(self.robot_position.orientation));
                 }
             }
         }
 
+        self.robot_position.position = Coordinate::new(0, 0);
         // print_map::<9>(&self.threat_map);
     }
 
@@ -87,28 +91,29 @@ impl Robot {
         }
     }
 
-    fn calculate_enemy_positions(&mut self, scan: &RadarScan<9>) -> usize {
-        let mut enemy_count = 0;
-        for y in -4..=4 {
-            for x in -4..=4 {
-                if x == 0 && y == 0 {
+    fn calculate_enemy_positions(&mut self, scan: &RadarScan<9>) {
+        self.enemy_positions.clear();
+
+        let n = threat_map::N as i8;
+        for y in -n/2..=n/2 {
+            for x in -n/2..=n/2 {
+                    if x == 0 && y == 0 {
                     // we are not an enemy
                     continue;
                 }
                 if scan.at(x, y) == '@' {
-                    self.enemy_positions[enemy_count] = Coordinate{x, y};
-                    enemy_count += 1;
+                    let id = scan.bot_at(x, y).unwrap();
+                    self.enemy_positions.push(EnemyPosition::new(id, Coordinate::new(x, y).orientate_north(self.robot_position.orientation)));
                 }
             }
         }
-        enemy_count
     }
 }
 
 #[no_mangle]
 fn main() {
     let orientation = Orientation::from_integer(compass_dir() as i32 - 1).unwrap();
-    let mut robot = Robot{ threat_map: ThreatMap::new(), enemy_positions: [Coordinate::new(0, 0); 9 * 9], robot_position: RobotPosition {position: Coordinate::new(0,0), orientation} };
+    let mut robot = Robot{ threat_map: ThreatMap::new(), enemy_positions: EnemyPositions::new(), previous_enemy_positions: EnemyPositions::new(), robot_position: RobotPosition {position: Coordinate::new(0,0), orientation} };
     loop {
         robot.round_robin_step();
     }
