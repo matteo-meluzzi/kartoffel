@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 kartoffel = { path = "../kartoffels/app/crates/kartoffel" }
-# kartoffel = { path = "../kartoffels/backend/crates/kartoffel" }
 threat-map = { path = "../threat-map" }
+fixed = "1.29.0"
